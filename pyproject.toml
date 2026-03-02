@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "valotox"
+version = "1.0.0"
+description = "ValoTox: A Hate Speech & Toxicity Dataset from Valorant Communities with a Fairness-Audited Detection System"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "Ritik G"},
+]
+keywords = ["toxicity", "hate-speech", "valorant", "nlp", "fairness"]
+
+dependencies = [
+    # --- Scraping ---
+    "praw>=7.7",
+    "beautifulsoup4>=4.12",
+    "requests>=2.31",
+    "snscrape>=0.7",
+    # --- Data ---
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "datasets>=2.16",
+    # --- NLP / ML ---
+    "transformers>=4.36",
+    "torch>=2.1",
+    "scikit-learn>=1.3",
+    "accelerate>=0.25",
+    "evaluate>=0.4",
+    # --- Annotation ---
+    "label-studio-sdk>=0.0.32",
+    # --- EDA / Viz ---
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "wordcloud>=1.9",
+    # --- Agent / API ---
+    "fastapi>=0.109",
+    "uvicorn[standard]>=0.25",
+    "langchain>=0.1",
+    "langgraph>=0.0.26",
+    "langsmith>=0.0.80",
+    "openai>=1.10",
+    # --- Utils ---
+    "python-dotenv>=1.0",
+    "tqdm>=4.66",
+    "loguru>=0.7",
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "black>=23.12",
+    "ruff>=0.1",
+    "ipykernel>=6.27",
+    "notebook>=7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["valotox*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]

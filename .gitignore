@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Environment secrets
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Data artifacts (large – stored externally)
+data/raw/*.csv
+data/raw/*.json
+data/processed/*.csv
+data/annotated/*.csv
+data/annotated/*.json
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/annotated/.gitkeep
+
+# Model artifacts
+models/
+*.pt
+*.bin
+*.safetensors
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Label Studio data
+label_studio_data/
+
+# Logs
+logs/
+*.log
+
+# Build
+dist/
+build/
+*.egg-info/

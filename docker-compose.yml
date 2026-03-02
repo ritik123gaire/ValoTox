@@ -1,0 +1,55 @@
+# ─── ValoTox Docker Compose ──────────────────────────────────────────────
+# Services: API, Label Studio (annotation), Redis (optional cache)
+# ─────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+  # ── ValoTox API ────────────────────────────────────────────────────────
+  valotox-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: valotox-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Label Studio (Annotation) ──────────────────────────────────────────
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: valotox-label-studio
+    ports:
+      - "8080:8080"
+    environment:
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/files
+    volumes:
+      - label_studio_data:/label-studio/data
+      - ./data:/label-studio/files:ro
+    restart: unless-stopped
+
+  # ── Redis (optional: for caching predictions) ──────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: valotox-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  label_studio_data:
