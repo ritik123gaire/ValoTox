@@ -27,14 +27,13 @@ def main():
     sub = parser.add_subparsers(dest="command", help="Pipeline phase to run")
 
     # ── scrape ───────────────────────────────────────────────────────────
-    scrape_p = sub.add_parser("scrape", help="Scrape data from sources")
+    scrape_p = sub.add_parser("scrape", help="Scrape Reddit data")
     scrape_p.add_argument(
         "--source",
-        choices=["reddit", "vlr", "twitter", "all"],
-        default="all",
+        choices=["reddit"],
+        default="reddit",
     )
     scrape_p.add_argument("--posts", type=int, default=500)
-    scrape_p.add_argument("--pages", type=int, default=20)
 
     # ── merge ────────────────────────────────────────────────────────────
     merge_p = sub.add_parser("merge", help="Merge & prepare raw data")
@@ -80,18 +79,9 @@ def main():
 
     # ── Dispatch ─────────────────────────────────────────────────────────
     if args.command == "scrape":
-        if args.source in ("reddit", "all"):
-            from valotox.scraping.reddit_scraper import scrape_subreddits
+        from valotox.scraping.reddit_scraper import scrape_subreddits
 
-            scrape_subreddits(posts_per_sort=args.posts)
-        if args.source in ("vlr", "all"):
-            from valotox.scraping.vlr_scraper import scrape_vlr
-
-            scrape_vlr(pages=args.pages)
-        if args.source in ("twitter", "all"):
-            from valotox.scraping.twitter_scraper import scrape_twitter
-
-            scrape_twitter()
+        scrape_subreddits(posts_per_sort=args.posts)
 
     elif args.command == "merge":
         from valotox.scraping.data_pipeline import create_annotation_splits, merge_sources

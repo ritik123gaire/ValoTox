@@ -1,6 +1,6 @@
 """
-Unified data pipeline: merge, deduplicate, clean, and prepare the
-combined ValoTox dataset from all sources.
+Data pipeline for Reddit-only ValoTox data: clean, deduplicate, and
+prepare annotation splits.
 """
 
 from __future__ import annotations
@@ -60,12 +60,12 @@ def merge_sources(
     min_words: int = 4,
     max_words: int = 512,
 ) -> pd.DataFrame:
-    """Load all raw CSVs, clean, deduplicate, and produce a single dataset.
+    """Load Reddit raw CSV, clean, deduplicate, and produce a single dataset.
 
     Parameters
     ----------
     raw_dir : Path | str | None
-        Directory containing ``*_raw.csv`` files. Default: ``data/raw/``.
+        Directory containing ``reddit_raw.csv``. Default: ``data/raw/``.
     output_path : Path | str | None
         Where to write the merged CSV. Default: ``data/processed/valotox_merged.csv``.
     min_words, max_words : int
@@ -78,21 +78,18 @@ def merge_sources(
     raw_dir = Path(raw_dir) if raw_dir else RAW_DIR
     output_path = Path(output_path) if output_path else PROCESSED_DIR / "valotox_merged.csv"
 
-    csv_files = list(raw_dir.glob("*_raw.csv"))
-    if not csv_files:
-        logger.error(f"No *_raw.csv files found in {raw_dir}")
+    reddit_csv = raw_dir / "reddit_raw.csv"
+    if not reddit_csv.exists():
+        logger.error(f"Missing reddit source file: {reddit_csv}")
         return pd.DataFrame()
 
-    frames: list[pd.DataFrame] = []
-    for fp in csv_files:
-        logger.info(f"Loading {fp.name} …")
-        df = pd.read_csv(fp, dtype=str).fillna("")
-        if "text" not in df.columns:
-            logger.warning(f"  Skipping {fp.name} – no 'text' column")
-            continue
-        frames.append(df)
+    logger.info(f"Loading {reddit_csv.name} …")
+    df = pd.read_csv(reddit_csv, dtype=str).fillna("")
+    if "text" not in df.columns:
+        logger.error(f"{reddit_csv.name} has no 'text' column")
+        return pd.DataFrame()
 
-    combined = pd.concat(frames, ignore_index=True)
+    combined = df.copy()
     logger.info(f"Combined raw rows: {len(combined):,}")
 
     # ── Clean ────────────────────────────────────────────────────────────

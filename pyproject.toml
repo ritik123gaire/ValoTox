@@ -19,7 +19,7 @@ dependencies = [
     "praw>=7.7",
     "beautifulsoup4>=4.12",
     "requests>=2.31",
-    "snscrape>=0.7",
+    "zstandard>=0.22",
     # --- Data ---
     "pandas>=2.1",
     "numpy>=1.26",

@@ -29,9 +29,16 @@ class Settings(BaseSettings):
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
     reddit_user_agent: str = "ValoTox Research Dataset v1.0"
+    sociavault_api_key: str = ""
+    use_sociavault_reddit: bool = True
 
-    # Twitter
-    twitter_bearer_token: str = ""
+    # ProxyScrape (optional — rotates HTTP proxies for HTML crawlers)
+    # Dashboard: https://dashboard.proxyscrape.com — use ``api-token`` header for Account API.
+    proxyscrape_api_key: str = ""
+    proxyscrape_subaccount_id: str = ""  # UUID; required for v4 datacenter list
+    proxyscrape_datacenter_path: str = "datacenter_shared"  # or ``datacenter_dedicated``
+    proxyscrape_proxy_limit: int = 500
+    use_proxyscrape_proxies: bool = True  # set False to disable proxy rotation
 
     # OpenAI
     openai_api_key: str = ""

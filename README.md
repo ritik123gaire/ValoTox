@@ -16,7 +16,7 @@
 | **Domain-specific dataset** | First NLP dataset targeting Valorant community toxicity |
 | **6-label multi-label schema** | `toxic`, `harassment`, `gender_attack`, `slur`, `passive_toxic`, `not_toxic` |
 | **Passive toxicity detection** | Captures subtle gaming slang ("ggez", "diff", "skill issue") that generic models miss |
-| **4 data sources** | Reddit, VLR.gg, Twitter/X — multi-platform coverage |
+| **Reddit-focused collection** | Reddit API pipeline for stable, reproducible collection |
 | **GPT-4o synthetic annotator** | Human vs. LLM agreement comparison as a standalone finding |
 | **Fairness-audited** | Cross-domain evaluation (Jigsaw → Valorant) exposes generalization gaps |
 | **LangGraph agent** | Context-aware moderation with Valorant-specific tool calling |
@@ -34,8 +34,6 @@ VALO_Toxicity_Detection_System/
 │   ├── eda.py                     # Exploratory Data Analysis & visualisations
 │   ├── scraping/
 │   │   ├── reddit_scraper.py      # PRAW-based Reddit scraper
-│   │   ├── vlr_scraper.py         # VLR.gg BeautifulSoup scraper
-│   │   ├── twitter_scraper.py     # snscrape / Twitter API scraper
 │   │   └── data_pipeline.py       # Merge, clean, deduplicate, split
 │   ├── annotation/
 │   │   ├── label_studio.py        # Label Studio integration
@@ -95,13 +93,36 @@ copy .env.example .env
 # Reddit (requires PRAW credentials in .env)
 python -m valotox.scraping.reddit_scraper --posts 500
 
-# VLR.gg forums
-python -m valotox.scraping.vlr_scraper --pages 20
+# Merge Reddit source
+python -m valotox.scraping.data_pipeline --merge --split
+```
 
-# Twitter (requires bearer token)
-python -m valotox.scraping.twitter_scraper --max-per-query 2000
+### 2b. Stream from Academic Torrents / Pushshift (.zst)
 
-# Merge all sources
+Use this when you have raw `RC_*.zst` / `RS_*.zst` files from the Reddit dumps and want
+memory-safe, line-by-line ingestion.
+
+```bash
+# Example: stream one monthly submissions file
+python -m valotox.scraping.reddit_scraper \
+  --stream-zst data/raw/reddit/RS_2025-06.zst \
+  --subreddits VALORANT ValorantMemes ValorantCompetitive AgentAcademy \
+  --output data/raw/reddit_raw.csv
+
+# Example: stream multiple files via glob and keep only keyword-matching rows
+python -m valotox.scraping.reddit_scraper \
+  --stream-glob "data/raw/reddit/RS_2024-*.zst" \
+  --keyword-only \
+  --max-rows 200000 \
+  --output data/raw/reddit_raw.csv
+
+# Optional: comments only / submissions only
+# --comments-only OR --submissions-only
+```
+
+Then continue with the normal pipeline:
+
+```bash
 python -m valotox.scraping.data_pipeline --merge --split
 ```
 
@@ -234,8 +255,6 @@ Moderation Decision
 | Source | What You Get | Tool |
 |--------|-------------|------|
 | r/VALORANT, r/ValorantMemes, r/ValorantCompetitive, r/AgentAcademy | Post-game rants, toxic screenshots, complaints | PRAW |
-| vlr.gg forums | Competitive scene toxicity, pro player drama | BeautifulSoup |
-| Twitter/X | Real-time in-game chat screenshots | snscrape / Twitter API |
 
 **Target:** 15,000–20,000 raw samples → 8,000–12,000 after filtering
 
