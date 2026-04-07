@@ -60,9 +60,11 @@ def _get_classifier():
             if candidates:
                 model_path = candidates[0]
             else:
-                raise FileNotFoundError(
-                    f"No trained model found in {MODEL_DIR}. Run benchmark first."
+                logger.warning(
+                    f"No trained model found in {MODEL_DIR}; using heuristic fallback classifier."
                 )
+                _classifier = ToxicityClassifier()
+                return _classifier
         _classifier = ToxicityClassifier(model_path)
     return _classifier
 

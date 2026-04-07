@@ -40,6 +40,7 @@ dependencies = [
     "fastapi>=0.109",
     "uvicorn[standard]>=0.25",
     "langchain>=0.1",
+    "langchain-openai>=0.1",
     "langgraph>=0.0.26",
     "langsmith>=0.0.80",
     "openai>=1.10",
@@ -48,6 +49,7 @@ dependencies = [
     "tqdm>=4.66",
     "loguru>=0.7",
     "pydantic>=2.5",
+    "pydantic-settings>=2.2",
 ]
 
 [project.optional-dependencies]
