@@ -1,0 +1,16 @@
+{
+  "rows_total": 10352,
+  "rows_train": 8281,
+  "rows_val": 1035,
+  "rows_test": 1036,
+  "subreddits": [
+    "AgentAcademy",
+    "VALORANT",
+    "ValorantCompetitive"
+  ],
+  "sources": [
+    "comment",
+    "submission"
+  ],
+  "generated_at_utc": "2026-04-06T19:34:16.338288+00:00"
+}
