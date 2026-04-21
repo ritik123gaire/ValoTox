@@ -42,7 +42,7 @@ VALO_Toxicity_Detection_System/
 │   ├── models/
 │   │   ├── dataset.py             # HuggingFace dataset loader & tokenizer
 │   │   ├── baseline.py            # TF-IDF + Logistic Regression
-│   │   ├── transformer.py         # DistilBERT / RoBERTa / HateBERT training
+│   │   ├── transformer.py         # ToxicityClassifier (lexicon heuristic; checkpoint metadata)
 │   │   └── benchmark.py           # Full benchmarking pipeline
 │   ├── agent/
 │   │   ├── tools.py               # Classifier, context checker, severity scorer
@@ -52,15 +52,58 @@ VALO_Toxicity_Detection_System/
 ├── data/
 │   ├── raw/                       # Scraped data (git-ignored)
 │   ├── processed/                 # Cleaned & merged data
-│   └── annotated/                 # Human + LLM annotations
-├── models/                        # Trained model weights (git-ignored)
-├── figures/                       # EDA plots
+│   ├── annotated/                 # Human + LLM annotations
+│   └── figures/                   # EDA plots (from `valotox.cli eda`)
+├── models/                        # Trained artifacts & checkpoints (see `valotox.cli train`)
 ├── notebooks/                     # Jupyter notebooks
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pyproject.toml
 ├── .env.example
 └── README.md
+```
+
+---
+
+## How the system runs
+
+Everything is driven from a **single CLI** (`valotox/cli.py`) and optional **HTTP API** (`valotox/api/app.py`). Configuration lives in **`.env`** (see `.env.example`) and is loaded by `valotox/config.py` (`pydantic-settings`).
+
+### Unified CLI
+
+```text
+python -m valotox.cli <command> [options]
+```
+
+| Command | What it does |
+|--------|----------------|
+| `scrape` | Collect Reddit posts (PRAW; needs Reddit vars in `.env`) |
+| `merge` | Merge/clean raw sources; add `--split` for annotation splits; `--reddit-conda` merges processed Reddit with a CONDA in-game CSV |
+| `annotate` | Label Studio project import/export; optional `--gpt4o` batch |
+| `iaa` | Inter-annotator agreement report |
+| `eda` | Exploratory analysis (figures under `data/figures/` by default) |
+| `train` | Training / benchmark (`--models`, `--epochs`, …) |
+| `predict` | Run the classifier on a CSV column (`--input`, `--text-column`, `--threshold`) |
+| `interactive` | Terminal REPL, or one-shot `-t "text"` / `--threshold` |
+| `serve` | Start the FastAPI app with **uvicorn** (`--host`, `--port`, `--reload`) |
+
+Run `python -m valotox.cli` with no subcommand to print built-in help.
+
+### Classification runtime
+
+1. **Call site** — `POST /classify`, `POST /batch`, LangGraph tools, or `python -m valotox.cli interactive` all go through `classify_toxicity()` in `valotox/agent/tools.py` (API preloads the classifier on startup).
+2. **Model handle** — `_get_classifier()` instantiates `ToxicityClassifier` from `valotox/models/transformer.py`. It prefers a checkpoint directory under `models/` (e.g. `models/roberta-valotox/best`). If none exists, it logs a warning and uses the same **lexicon-based** implementation.
+3. **Scores** — The bundled `ToxicityClassifier` produces multi-label confidences from Valorant-focused regex categories, passive-toxic phrases, and English slur word-boundary checks (`valotox/lexicon.py`). An optional `model_config.json` inside a checkpoint folder can adjust settings such as the default threshold.
+4. **Decision** — Toxic labels (`toxic`, `harassment`, `gender_attack`, `slur`, `passive_toxic`) above the threshold drive `is_toxic` and `active_labels`; `not_toxic` is only surfaced as active when no toxic label clears the bar. Severity is derived from the toxic labels, not from `not_toxic`.
+
+So the repo runs **out of the box** for demos: no GPU weights are required for the CLI/API to return scores (they are heuristic until you plug in a trained checkpoint workflow).
+
+### Try it
+
+```bash
+python -m valotox.cli interactive
+python -m valotox.cli interactive -t "good luck everyone" --threshold 0.5
+python -m valotox.cli serve --reload --port 8000
 ```
 
 ---
@@ -91,10 +134,10 @@ copy .env.example .env
 
 ```bash
 # Reddit (requires PRAW credentials in .env)
-python -m valotox.scraping.reddit_scraper --posts 500
+python -m valotox.cli scrape --posts 500
 
-# Merge Reddit source
-python -m valotox.scraping.data_pipeline --merge --split
+# Merge Reddit sources (add --split for annotation splits)
+python -m valotox.cli merge --split
 ```
 
 ### 2b. Stream from Academic Torrents / Pushshift (.zst)
@@ -123,7 +166,7 @@ python -m valotox.scraping.reddit_scraper \
 Then continue with the normal pipeline:
 
 ```bash
-python -m valotox.scraping.data_pipeline --merge --split
+python -m valotox.cli merge --split
 ```
 
 ### 3. Annotate (Phase 3)
@@ -132,42 +175,43 @@ python -m valotox.scraping.data_pipeline --merge --split
 # Start Label Studio
 docker compose up label-studio
 
-# Create project & import data
-python -m valotox.annotation.label_studio create
-python -m valotox.annotation.label_studio import --project-id 1 --csv data/processed/annotation_iaa.csv
+# Create project & import data (equivalent: python -m valotox.annotation.label_studio …)
+python -m valotox.cli annotate --create-project
+python -m valotox.cli annotate --import-csv data/processed/annotation_iaa.csv --project-id 1
 
-# After annotation, compute IAA
-python -m valotox.annotation.iaa
+# After annotation, export and compute IAA
+python -m valotox.cli annotate --export --project-id 1
+python -m valotox.cli iaa
 
-# Run GPT-4o synthetic annotator on IAA batch
-python -m valotox.annotation.gpt4o_annotator --input data/processed/annotation_iaa.csv --batch-size 600
+# Run GPT-4o synthetic annotator on IAA batch (needs OPENAI_API_KEY)
+python -m valotox.cli annotate --gpt4o data/processed/annotation_iaa.csv --gpt4o-batch-size 600
 ```
 
 ### 4. EDA (Phase 4)
 
 ```bash
-python -m valotox.eda --input data/annotated/valotox_annotated.csv
-# → Generates all figures in figures/
+python -m valotox.cli eda --input data/annotated/valotox_annotated.csv
+# → Figures and summaries under data/figures/
 ```
 
 ### 5. Train Models (Phase 5)
 
 ```bash
 # Full benchmark (all models)
-python -m valotox.models.benchmark --epochs 5 --batch-size 16
+python -m valotox.cli train --epochs 5 --batch-size 16
 
 # Specific models only
-python -m valotox.models.benchmark --models roberta hatebert --epochs 5
+python -m valotox.cli train --models roberta hatebert --epochs 5
 
 # Cross-domain: Jigsaw → ValoTox
-python -m valotox.models.benchmark --jigsaw
+python -m valotox.cli train --jigsaw
 ```
 
 ### 6. Deploy API (Phase 6)
 
 ```bash
-# Local
-uvicorn valotox.api.app:app --reload --port 8000
+# Local (same app as: uvicorn valotox.api.app:app --reload --port 8000)
+python -m valotox.cli serve --reload --port 8000
 
 # Docker
 docker compose up --build

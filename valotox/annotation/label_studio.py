@@ -8,13 +8,12 @@ Label Studio integration for ValoTox annotation workflow.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pandas as pd
 from loguru import logger
 
-from valotox.config import ANNOTATED_DIR, PROCESSED_DIR, settings
+from valotox.config import ANNOTATED_DIR, settings
 from valotox.lexicon import LABELS
 
 # ── Label Studio XML template ────────────────────────────────────────────────

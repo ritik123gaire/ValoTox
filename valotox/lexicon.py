@@ -7,6 +7,8 @@ Each category maps to one or more target annotation labels.
 
 from __future__ import annotations
 
+import re
+
 # ── Label constants ──────────────────────────────────────────────────────────
 LABELS: list[str] = [
     "toxic",
@@ -20,6 +22,11 @@ LABELS: list[str] = [
 # ── Keyword buckets ──────────────────────────────────────────────────────────
 
 GENERAL_INSULTS: list[str] = [
+    "fuck you",
+    "fuck u",
+    "fuck off",
+    "go fuck yourself",
+    "fuck yourself",
     "braindead",
     "brain dead",
     "uninstall",
@@ -82,6 +89,8 @@ PASSIVE_TOXIC: list[str] = [
     "thanks for free rr",
     "lol nt",
     "good effort tho",
+    "ggwp",
+    "gg wp",
 ]
 
 THREATS_ESCALATION: list[str] = [
@@ -109,6 +118,8 @@ THREATS_ESCALATION: list[str] = [
 ]
 
 GENDER_BASED: list[str] = [
+    "get back to kitchen",
+    "get back to the kitchen",
     "go back to kitchen",
     "go back to the kitchen",
     "girls can't play",
@@ -132,6 +143,38 @@ GENDER_BASED: list[str] = [
     "wh*re",
     "sl*t",
 ]
+
+# Whole-word English hate slurs vs severe profanity — split so the classifier can map ``slur``
+# (dataset label) to hate terms only, while still flagging profanity as ``toxic`` / ``harassment``.
+ENGLISH_HATE_SLURS: list[str] = [
+    "cunt",
+    "nigga",
+    "nigger",
+    "faggot",
+    "retard",
+    "spic",
+    "chink",
+    "kike",
+    "coon",
+]
+
+ENGLISH_SEVERE_PROFANITY: list[str] = [
+    "fuck",
+    "fucking",
+    "fucked",
+    "motherfucker",
+    "bullshit",
+    "asshole",
+    "bitch",
+    "bastard",
+    "dickhead",
+    "prick",
+    "dick",
+    "piss",
+    "wanker",
+]
+
+ENGLISH_SLUR_PROFANITY: list[str] = sorted(set(ENGLISH_HATE_SLURS + ENGLISH_SEVERE_PROFANITY))
 
 REGIONAL_SLANG: list[str] = [
     # Mumbai / South-East Asia server slang
@@ -209,6 +252,7 @@ ALL_TOXIC_KEYWORDS: list[str] = sorted(
         + GENDER_BASED
         + REGIONAL_SLANG
         + GAMEPLAY_TOXIC
+        + ENGLISH_SLUR_PROFANITY
     )
 )
 
@@ -221,6 +265,26 @@ LABEL_CATEGORY_MAP: dict[str, list[str]] = {
     "passive_toxic": ["passive_toxic"],
     "not_toxic": [],
 }
+
+
+def _word_boundary_alt(words: list[str]) -> str:
+    words = sorted(set(words), key=len, reverse=True)
+    return r"\b(?:" + "|".join(re.escape(w) for w in words) + r")\b"
+
+
+def get_hate_slur_word_boundary_pattern() -> str:
+    """Regex with ``\\b`` boundaries for :data:`ENGLISH_HATE_SLURS` (label ``slur``)."""
+    return _word_boundary_alt(ENGLISH_HATE_SLURS)
+
+
+def get_severe_profanity_word_boundary_pattern() -> str:
+    """Regex with ``\\b`` boundaries for :data:`ENGLISH_SEVERE_PROFANITY` (toxic / harassment, not ``slur``)."""
+    return _word_boundary_alt(ENGLISH_SEVERE_PROFANITY)
+
+
+def get_slur_word_boundary_pattern() -> str:
+    """Union of hate slurs + severe profanity (whole-word). Prefer split helpers in new code."""
+    return _word_boundary_alt(ENGLISH_HATE_SLURS + ENGLISH_SEVERE_PROFANITY)
 
 
 def get_regex_pattern(categories: list[str] | None = None) -> str:
@@ -236,8 +300,6 @@ def get_regex_pattern(categories: list[str] | None = None) -> str:
     str
         A ``|``-joined regex pattern (case-insensitive matching recommended).
     """
-    import re
-
     if categories is None:
         keywords = ALL_TOXIC_KEYWORDS
     else:

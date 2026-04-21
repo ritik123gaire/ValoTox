@@ -10,18 +10,16 @@ These are plugged into the LangGraph agent as callable tools:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from valotox.config import MODEL_DIR, settings
-from valotox.lexicon import LABELS
 from valotox.models.dataset import CLASSIFICATION_LABELS
 
-
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
+
 
 class ToxicityResult(BaseModel):
     """Output of the toxicity classifier tool."""
@@ -47,24 +45,34 @@ class ContextCheckResult(BaseModel):
 _classifier = None
 
 
+def _pick_model_dir() -> Any:
+    candidates = [path for path in MODEL_DIR.glob("*/best") if path.is_dir()]
+    if not candidates:
+        return None
+
+    def _sort_key(path):
+        model_file = path / "model.safetensors"
+        if not model_file.exists():
+            model_file = path / "pytorch_model.bin"
+        if not model_file.exists():
+            model_file = path / "config.json"
+        return (model_file.stat().st_mtime if model_file.exists() else path.stat().st_mtime, path.as_posix())
+
+    candidates.sort(key=_sort_key, reverse=True)
+    return candidates[0]
+
+
 def _get_classifier():
     """Lazy-load the classifier model."""
     global _classifier
     if _classifier is None:
         from valotox.models.transformer import ToxicityClassifier
 
-        model_path = MODEL_DIR / "roberta-valotox" / "best"
-        if not model_path.exists():
-            # Fallback to any trained model
-            candidates = list(MODEL_DIR.glob("*/best"))
-            if candidates:
-                model_path = candidates[0]
-            else:
-                logger.warning(
-                    f"No trained model found in {MODEL_DIR}; using heuristic fallback classifier."
-                )
-                _classifier = ToxicityClassifier()
-                return _classifier
+        model_path = _pick_model_dir()
+        if model_path is None:
+            logger.warning(f"No trained model found in {MODEL_DIR}; using heuristic fallback classifier.")
+            _classifier = ToxicityClassifier()
+            return _classifier
         _classifier = ToxicityClassifier(model_path)
     return _classifier
 
@@ -78,9 +86,35 @@ def classify_toxicity(text: str, threshold: float = 0.5) -> ToxicityResult:
     predictions = classifier.predict(text)
     pred = predictions[0]
 
-    active = [label for label, score in pred.items() if score >= threshold]
-    is_toxic = len(active) > 0
-    severity = _compute_severity(pred, threshold)
+    configured_thresholds = {}
+    cfg = getattr(classifier, "_cfg", None)
+    if isinstance(cfg, dict):
+        raw_thresholds = cfg.get("thresholds")
+        if isinstance(raw_thresholds, dict):
+            configured_thresholds = {
+                str(k): float(v)
+                for k, v in raw_thresholds.items()
+                if k in CLASSIFICATION_LABELS and isinstance(v, (int, float))
+            }
+
+    # Respect calibrated per-label thresholds when caller uses the default slider value.
+    if configured_thresholds and abs(float(threshold) - 0.5) < 1e-9:
+        label_thresholds = {
+            label: configured_thresholds.get(label, 0.5) for label in CLASSIFICATION_LABELS
+        }
+    else:
+        label_thresholds = {label: float(threshold) for label in CLASSIFICATION_LABELS}
+
+    toxic_labels = [lab for lab in CLASSIFICATION_LABELS if lab != "not_toxic"]
+    toxic_active = [lab for lab in toxic_labels if pred.get(lab, 0.0) >= label_thresholds.get(lab, 0.5)]
+    if toxic_active:
+        active = toxic_active
+        is_toxic = True
+    else:
+        is_toxic = False
+        active = ["not_toxic"] if pred.get("not_toxic", 0.0) >= label_thresholds.get("not_toxic", 0.5) else []
+
+    severity = _compute_severity(pred, label_thresholds=label_thresholds)
 
     return ToxicityResult(
         text=text,
@@ -179,21 +213,25 @@ SEVERITY_WEIGHTS = {
 def _compute_severity(
     label_scores: dict[str, float],
     threshold: float = 0.5,
+    label_thresholds: dict[str, float] | None = None,
 ) -> str:
     """Compute overall severity from label confidence scores.
 
     Ranking: none → passive → moderate → severe → slur
     """
-    active = {l: s for l, s in label_scores.items() if s >= threshold}
+    # Ignore ``not_toxic`` — it must not drive severity to "passive".
+    active = {
+        lbl: s
+        for lbl, s in label_scores.items()
+        if s >= (label_thresholds.get(lbl, threshold) if label_thresholds else threshold)
+        and lbl != "not_toxic"
+        and lbl in SEVERITY_WEIGHTS
+    }
 
     if not active:
         return "none"
 
-    # Weighted severity
-    max_weight = 0
-    for label, score in active.items():
-        weight = SEVERITY_WEIGHTS.get(label, 1)
-        max_weight = max(max_weight, weight)
+    max_weight = max(SEVERITY_WEIGHTS[lbl] for lbl in active)
 
     if max_weight >= 5:
         return "slur"

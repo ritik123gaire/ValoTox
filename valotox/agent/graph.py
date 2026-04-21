@@ -12,13 +12,13 @@ Implements a stateful agent graph with tool-calling capabilities:
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
-from loguru import logger
 
 from valotox.config import settings
 
@@ -37,8 +37,6 @@ class AgentState(TypedDict):
 
 
 # ── LangChain Tool wrappers ─────────────────────────────────────────────────
-
-from langchain_core.tools import tool
 
 
 @tool
@@ -158,7 +156,7 @@ def run_agent(text: str) -> dict:
     initial_state: AgentState = {
         "messages": [
             SYSTEM_MSG,
-            HumanMessage(content=f"Analyse this Valorant community comment for toxicity:\n\n\"{text}\""),
+            HumanMessage(content=f'Analyse this Valorant community comment for toxicity:\n\n"{text}"'),
         ],
         "input_text": text,
         "toxicity_result": None,

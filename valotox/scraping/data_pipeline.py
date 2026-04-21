@@ -6,6 +6,7 @@ prepare annotation splits.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -13,8 +14,7 @@ import pandas as pd
 from loguru import logger
 
 from valotox.config import PROCESSED_DIR, RAW_DIR
-from valotox.lexicon import ALL_TOXIC_KEYWORDS, get_regex_pattern
-
+from valotox.lexicon import LABELS, get_regex_pattern
 
 # ── Text cleaning ────────────────────────────────────────────────────────────
 
@@ -23,12 +23,12 @@ _MENTION_RE = re.compile(r"@\w+")
 _MULTI_SPACE = re.compile(r"\s+")
 _EMOJI_RE = re.compile(
     "["
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F300-\U0001F5FF"  # symbols & pictographs
-    "\U0001F680-\U0001F6FF"  # transport
-    "\U0001F1E0-\U0001F1FF"  # flags
-    "\U00002702-\U000027B0"
-    "\U000024C2-\U0001F251"
+    "\U0001f600-\U0001f64f"  # emoticons
+    "\U0001f300-\U0001f5ff"  # symbols & pictographs
+    "\U0001f680-\U0001f6ff"  # transport
+    "\U0001f1e0-\U0001f1ff"  # flags
+    "\U00002702-\U000027b0"
+    "\U000024c2-\U0001f251"
     "]+",
     flags=re.UNICODE,
 )
@@ -53,6 +53,7 @@ def text_hash(text: str) -> str:
 
 
 # ── Merge & deduplicate ─────────────────────────────────────────────────────
+
 
 def merge_sources(
     raw_dir: Path | str | None = None,
@@ -95,9 +96,7 @@ def merge_sources(
     # ── Clean ────────────────────────────────────────────────────────────
     combined["text_clean"] = combined["text"].apply(clean_text)
     combined["word_count"] = combined["text_clean"].str.split().str.len()
-    combined = combined[
-        (combined["word_count"] >= min_words) & (combined["word_count"] <= max_words)
-    ].copy()
+    combined = combined[(combined["word_count"] >= min_words) & (combined["word_count"] <= max_words)].copy()
     logger.info(f"After word-count filter: {len(combined):,}")
 
     # ── Deduplicate ──────────────────────────────────────────────────────
@@ -108,14 +107,11 @@ def merge_sources(
 
     # ── Keyword flag ─────────────────────────────────────────────────────
     pattern = get_regex_pattern()
-    combined["has_toxic_keyword"] = combined["text_clean"].str.contains(
-        pattern, case=False, na=False, regex=True
-    )
+    combined["has_toxic_keyword"] = combined["text_clean"].str.contains(pattern, case=False, na=False, regex=True)
     n_kw = combined["has_toxic_keyword"].sum()
     logger.info(f"Keyword-matching rows: {n_kw:,} / {len(combined):,}")
 
     # ── Add empty label columns ──────────────────────────────────────────
-    from valotox.lexicon import LABELS
     for label in LABELS:
         combined[label] = 0  # will be filled during annotation
 
@@ -126,7 +122,146 @@ def merge_sources(
     return combined
 
 
+def merge_reddit_and_conda(
+    conda_csv: Path | str,
+    reddit_csv: Path | str | None = None,
+    output_path: Path | str | None = None,
+    min_words_reddit: int = 4,
+    min_words_conda: int = 1,
+    dedupe_across_sources: bool = True,
+) -> pd.DataFrame:
+    """Combine processed Reddit rows with CONDA in-game chat CSV.
+
+    Reddit defaults to ``data/processed/valotox_merged.csv`` if present; otherwise
+    ``data/raw/all_sources_raw_normalized.jsonl``.
+
+    CONDA CSV must include an ``utterance`` column (and typically ``Id``, ``matchId``).
+
+    Output columns include ``text``, ``text_clean``, ``source_origin`` (``reddit`` | ``conda``),
+    ``weak_toxic`` (keyword flag), and empty multi-label columns for annotation workflows.
+    """
+    conda_csv = Path(conda_csv)
+    if not conda_csv.is_file():
+        raise FileNotFoundError(conda_csv)
+
+    output_path = Path(output_path) if output_path else PROCESSED_DIR / "reddit_conda_merged.csv"
+
+    # ── Reddit ─────────────────────────────────────────────────────────────
+    reddit_csv = Path(reddit_csv) if reddit_csv else PROCESSED_DIR / "valotox_merged.csv"
+    jsonl_fallback = RAW_DIR / "all_sources_raw_normalized.jsonl"
+
+    if reddit_csv.is_file():
+        logger.info(f"Loading Reddit from {reddit_csv}")
+        rdf = pd.read_csv(reddit_csv, dtype=str, low_memory=False).fillna("")
+    elif jsonl_fallback.is_file():
+        logger.info(f"Loading Reddit from {jsonl_fallback}")
+        rows: list[dict] = []
+        with jsonl_fallback.open("r", encoding="utf-8") as fp:
+            for line in fp:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        rdf = pd.DataFrame(rows)
+    else:
+        raise FileNotFoundError(f"No Reddit source found. Expected {reddit_csv} or {jsonl_fallback}")
+
+    if "text" not in rdf.columns:
+        raise ValueError("Reddit data must contain a 'text' column")
+
+    rdf = rdf.copy()
+    rdf["source_origin"] = "reddit"
+    if "uid" not in rdf.columns:
+        rdf["uid"] = "reddit_row:" + rdf.index.astype(str)
+
+    rdf["text_clean"] = rdf["text"].astype(str).apply(clean_text)
+    rdf["word_count"] = rdf["text_clean"].str.split().str.len()
+    rdf = rdf[(rdf["word_count"] >= min_words_reddit)].copy()
+    logger.info(f"Reddit rows after ≥{min_words_reddit} words: {len(rdf):,}")
+
+    # ── CONDA ──────────────────────────────────────────────────────────────
+    logger.info(f"Loading CONDA from {conda_csv}")
+    cdf = pd.read_csv(conda_csv, dtype=str, low_memory=False).fillna("")
+    if "utterance" not in cdf.columns:
+        raise ValueError("CONDA CSV must contain an 'utterance' column")
+
+    cdf = cdf.copy()
+    cdf["source_origin"] = "conda"
+    cdf["text"] = cdf["utterance"].astype(str)
+    id_col = "Id" if "Id" in cdf.columns else cdf.columns[0]
+    cdf["uid"] = cdf[id_col].apply(lambda x: f"conda:{x}" if str(x).strip() else "")
+    mask_empty_uid = cdf["uid"] == ""
+    if mask_empty_uid.any():
+        cdf.loc[mask_empty_uid, "uid"] = "conda:idx_" + cdf.loc[mask_empty_uid].index.astype(str)
+
+    cdf["subreddit"] = ""
+    cdf["source_type"] = "in_game_chat"
+    cdf["text_clean"] = cdf["text"].apply(clean_text)
+    cdf["word_count"] = cdf["text_clean"].str.split().str.len()
+    cdf = cdf[(cdf["word_count"] >= min_words_conda)].copy()
+    logger.info(f"CONDA rows after ≥{min_words_conda} words: {len(cdf):,}")
+
+    for col in ("conda_match_id", "conda_conversation_id"):
+        if col not in rdf.columns:
+            rdf[col] = ""
+    if "matchId" in cdf.columns:
+        cdf["conda_match_id"] = cdf["matchId"].astype(str)
+    else:
+        cdf["conda_match_id"] = ""
+    if "conversationId" in cdf.columns:
+        cdf["conda_conversation_id"] = cdf["conversationId"].astype(str)
+    else:
+        cdf["conda_conversation_id"] = ""
+
+    out_cols = [
+        "uid",
+        "text",
+        "text_clean",
+        "source_origin",
+        "word_count",
+        "subreddit",
+        "source_type",
+        "conda_match_id",
+        "conda_conversation_id",
+        "created_utc",
+    ]
+    if "subreddit" not in rdf.columns:
+        rdf["subreddit"] = ""
+    if "source_type" not in rdf.columns:
+        rdf["source_type"] = ""
+    if "created_utc" not in rdf.columns:
+        rdf["created_utc"] = ""
+    if "created_utc" not in cdf.columns:
+        cdf["created_utc"] = ""
+
+    r_small = rdf[out_cols].copy()
+    c_small = cdf[out_cols].copy()
+
+    combined = pd.concat([r_small, c_small], ignore_index=True)
+    pattern = get_regex_pattern()
+    combined["weak_toxic"] = combined["text_clean"].str.contains(pattern, case=False, na=False, regex=True).astype(int)
+    for label in LABELS:
+        if label not in combined.columns:
+            combined[label] = 0
+
+    if dedupe_across_sources:
+        combined["text_hash"] = combined["text_clean"].apply(text_hash)
+        before = len(combined)
+        combined = combined.drop_duplicates(subset=["text_hash"], keep="first").reset_index(drop=True)
+        combined = combined.drop(columns=["text_hash"])
+        logger.info(f"Deduped by text: {before:,} → {len(combined):,}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_csv(output_path, index=False)
+    logger.info(f"Saved Reddit+CONDA merged dataset → {output_path} ({len(combined):,} rows)")
+    return combined
+
+
 # ── Stratified sampling for annotation ───────────────────────────────────────
+
 
 def create_annotation_splits(
     df: pd.DataFrame | None = None,
