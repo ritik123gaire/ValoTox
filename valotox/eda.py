@@ -14,10 +14,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")  # non-interactive backend
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import seaborn as sns
 from loguru import logger
@@ -33,7 +33,60 @@ FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 sns.set_theme(style="whitegrid", palette="muted", font_scale=1.1)
 
 
+def _apply_prediction_proxy_labels(
+    df: pd.DataFrame,
+    pred_threshold: float = 0.5,
+    use_prediction_proxy: bool = True,
+) -> tuple[pd.DataFrame, str]:
+    """Use thresholded ``pred_*`` columns as binary labels when gold labels are all zero.
+
+    Returns
+    -------
+    (dataframe, source)
+        ``source`` is ``"gold"``, ``"prediction_proxy"``, or ``"gold_empty"``.
+    """
+    work = df.copy()
+    label_cols = [lab for lab in LABELS if lab in work.columns]
+    gold_sum = int(work[label_cols].sum().sum()) if label_cols else 0
+    has_pred = any(f"pred_{lab}" in work.columns for lab in LABELS)
+
+    if gold_sum > 0:
+        return work, "gold"
+
+    if not has_pred:
+        if label_cols:
+            logger.info(
+                "Gold label columns are all zero and no pred_* columns — "
+                "label distribution / TF-IDF-by-label plots will be flat."
+            )
+        else:
+            logger.info("No gold label columns and no pred_* columns — add annotations or run predict first.")
+        return work, "gold_empty"
+
+    if not use_prediction_proxy:
+        logger.info("Gold labels all zero; --no-pred-proxy set — skipping model-based label proxy.")
+        return work, "gold_empty"
+
+    n_filled = 0
+    for lab in LABELS:
+        pc = f"pred_{lab}"
+        if pc not in work.columns:
+            continue
+        work[lab] = (pd.to_numeric(work[pc], errors="coerce").fillna(0.0) >= pred_threshold).astype(int)
+        n_filled += 1
+
+    if n_filled:
+        logger.info(
+            f"Gold labels all zero — using model proxy: pred_* ≥ {pred_threshold} "
+            f"for {n_filled} label column(s) in EDA plots (does not modify your source CSV)."
+        )
+        return work, "prediction_proxy"
+
+    return work, "gold_empty"
+
+
 # ── 1. Label distribution per subreddit ──────────────────────────────────────
+
 
 def plot_label_distribution(
     df: pd.DataFrame,
@@ -42,7 +95,7 @@ def plot_label_distribution(
     """Bar chart of label counts, optionally faceted by subreddit."""
     save_path = Path(save_path) if save_path else FIGURES_DIR / "label_distribution.png"
 
-    label_cols = [l for l in LABELS if l in df.columns]
+    label_cols = [lab for lab in LABELS if lab in df.columns]
     counts = df[label_cols].sum().sort_values(ascending=False)
 
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -68,7 +121,7 @@ def plot_label_by_subreddit(
         logger.warning("No 'subreddit' column — skipping subreddit breakdown")
         return plt.figure()
 
-    label_cols = [l for l in LABELS if l in df.columns]
+    label_cols = [lab for lab in LABELS if lab in df.columns]
     grouped = df.groupby("subreddit")[label_cols].mean()
 
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -85,6 +138,7 @@ def plot_label_by_subreddit(
 
 # ── 2. Comment length by toxicity type ──────────────────────────────────────
 
+
 def plot_length_by_label(
     df: pd.DataFrame,
     text_col: str = "text_clean",
@@ -96,7 +150,7 @@ def plot_length_by_label(
     df = df.copy()
     df["word_count"] = df[text_col].astype(str).str.split().str.len()
 
-    label_cols = [l for l in LABELS if l in df.columns]
+    label_cols = [lab for lab in LABELS if lab in df.columns]
     melted: list[pd.DataFrame] = []
     for label in label_cols:
         subset = df[df[label] == 1][["word_count"]].copy()
@@ -122,6 +176,7 @@ def plot_length_by_label(
 
 # ── 3. Most discriminative tokens (TF-IDF) ──────────────────────────────────
 
+
 def tfidf_top_tokens(
     df: pd.DataFrame,
     text_col: str = "text_clean",
@@ -134,7 +189,7 @@ def tfidf_top_tokens(
     """
     save_path = Path(save_path) if save_path else FIGURES_DIR / "tfidf_top_tokens.png"
 
-    label_cols = [l for l in LABELS if l in df.columns and l != "not_toxic"]
+    label_cols = [lab for lab in LABELS if lab in df.columns and lab != "not_toxic"]
     result: dict[str, list[tuple[str, float]]] = {}
 
     vectorizer = TfidfVectorizer(
@@ -183,8 +238,8 @@ def tfidf_top_tokens(
 
 # ── 4. IAA visualisation ─────────────────────────────────────────────────────
 
+
 def plot_iaa_scores(
-    cohens_path: Path | str | None = None,
     fleiss_path: Path | str | None = None,
     save_path: Path | str | None = None,
 ) -> plt.Figure:
@@ -193,7 +248,12 @@ def plot_iaa_scores(
     fleiss_path = Path(fleiss_path) if fleiss_path else ANNOTATED_DIR / "iaa_fleiss_kappa.csv"
 
     if not fleiss_path.exists():
-        logger.warning(f"Fleiss kappa file not found: {fleiss_path}")
+        logger.info(
+            "Skipping IAA chart (no {}). "
+            "After Label Studio: export ≥2 annotator files as data/annotated/iaa_annotator_<name>.csv, "
+            "then run: python -m valotox.cli iaa",
+            fleiss_path.name,
+        )
         return plt.figure()
 
     fleiss = pd.read_csv(fleiss_path)
@@ -214,6 +274,7 @@ def plot_iaa_scores(
 
 # ── 5. Temporal analysis ─────────────────────────────────────────────────────
 
+
 def plot_temporal_trends(
     df: pd.DataFrame,
     date_col: str = "created_utc",
@@ -233,7 +294,7 @@ def plot_temporal_trends(
     if df.empty:
         return plt.figure()
 
-    label_cols = [l for l in LABELS if l in df.columns and l != "not_toxic"]
+    label_cols = [lab for lab in LABELS if lab in df.columns and lab != "not_toxic"]
     df = df.set_index("date").sort_index()
 
     fig, ax = plt.subplots(figsize=(14, 6))
@@ -253,19 +314,26 @@ def plot_temporal_trends(
 
 # ── 6. Dataset summary statistics ────────────────────────────────────────────
 
-def dataset_summary(df: pd.DataFrame, text_col: str = "text_clean") -> pd.DataFrame:
+
+def dataset_summary(
+    df: pd.DataFrame,
+    text_col: str = "text_clean",
+    label_source: str | None = None,
+) -> pd.DataFrame:
     """Return a summary table of key dataset statistics."""
     stats: dict[str, object] = {
         "total_samples": len(df),
         "unique_texts": df[text_col].nunique() if text_col in df.columns else None,
     }
+    if label_source:
+        stats["label_eda_source"] = label_source
 
     if "source" in df.columns:
         stats["sources"] = df["source"].value_counts().to_dict()
     if "subreddit" in df.columns:
         stats["subreddits"] = df["subreddit"].value_counts().to_dict()
 
-    label_cols = [l for l in LABELS if l in df.columns]
+    label_cols = [lab for lab in LABELS if lab in df.columns]
     for label in label_cols:
         stats[f"{label}_count"] = int(df[label].sum())
         stats[f"{label}_pct"] = round(df[label].mean() * 100, 2)
@@ -284,10 +352,18 @@ def dataset_summary(df: pd.DataFrame, text_col: str = "text_clean") -> pd.DataFr
 
 # ── Full EDA pipeline ────────────────────────────────────────────────────────
 
+
 def run_full_eda(
     input_path: Path | str | None = None,
+    *,
+    pred_threshold: float = 0.5,
+    use_prediction_proxy: bool = True,
 ) -> None:
-    """Run all EDA analyses and save figures + stats."""
+    """Run all EDA analyses and save figures + stats.
+
+    If gold ``toxic``, ``harassment``, … columns are all zero but ``pred_*`` model scores exist,
+    binary labels for plotting are derived as ``pred_* >= pred_threshold`` (unless disabled).
+    """
     input_path = Path(input_path) if input_path else ANNOTATED_DIR / "valotox_annotated.csv"
 
     if not input_path.exists():
@@ -297,7 +373,19 @@ def run_full_eda(
     df = pd.read_csv(input_path)
     logger.info(f"Loaded {len(df):,} annotated samples for EDA")
 
-    dataset_summary(df)
+    if "text_clean" not in df.columns and "text" in df.columns:
+        df["text_clean"] = df["text"].astype(str)
+    for label in LABELS:
+        if label in df.columns:
+            df[label] = pd.to_numeric(df[label], errors="coerce").fillna(0).astype(int)
+
+    df, label_source = _apply_prediction_proxy_labels(
+        df,
+        pred_threshold=pred_threshold,
+        use_prediction_proxy=use_prediction_proxy,
+    )
+
+    dataset_summary(df, label_source=label_source)
     plot_label_distribution(df)
     plot_label_by_subreddit(df)
     plot_length_by_label(df)
@@ -315,6 +403,21 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run ValoTox EDA")
     parser.add_argument("--input", type=str, default=None)
+    parser.add_argument(
+        "--pred-threshold",
+        type=float,
+        default=0.5,
+        help="When gold labels are all zero, threshold pred_* scores for label plots (default: 0.5)",
+    )
+    parser.add_argument(
+        "--no-pred-proxy",
+        action="store_true",
+        help="Do not derive label plots from pred_*; keep flat gold-only charts",
+    )
     args = parser.parse_args()
 
-    run_full_eda(args.input)
+    run_full_eda(
+        args.input,
+        pred_threshold=args.pred_threshold,
+        use_prediction_proxy=not args.no_pred_proxy,
+    )

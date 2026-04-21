@@ -16,7 +16,7 @@ import pandas as pd
 from loguru import logger
 from tqdm import tqdm
 
-from valotox.config import ANNOTATED_DIR, PROCESSED_DIR, settings
+from valotox.config import ANNOTATED_DIR, settings
 from valotox.lexicon import LABELS
 
 # ── System prompt for GPT-4o ─────────────────────────────────────────────────
@@ -86,13 +86,13 @@ def _call_gpt4o(text: str) -> dict[str, int]:
         validated[label] = 1 if val == 1 else 0
 
     # Enforce mutual exclusivity: not_toxic vs. others
-    has_toxic = any(validated[l] == 1 for l in LABELS if l != "not_toxic")
+    has_toxic = any(validated[lab] == 1 for lab in LABELS if lab != "not_toxic")
     if has_toxic:
         validated["not_toxic"] = 0
     if validated["not_toxic"] == 1:
-        for l in LABELS:
-            if l != "not_toxic":
-                validated[l] = 0
+        for lab in LABELS:
+            if lab != "not_toxic":
+                validated[lab] = 0
 
     return validated
 
@@ -121,9 +121,7 @@ def annotate_batch(
     pd.DataFrame
     """
     input_path = Path(input_path)
-    output_path = (
-        Path(output_path) if output_path else ANNOTATED_DIR / "gpt4o_annotations.csv"
-    )
+    output_path = Path(output_path) if output_path else ANNOTATED_DIR / "gpt4o_annotations.csv"
 
     df = pd.read_csv(input_path)
     if batch_size:
@@ -191,9 +189,7 @@ def compare_human_vs_llm(
         ann_sorted = ann_df.sort_values("text").reset_index(drop=True)
         for label in LABELS:
             kappa = cohen_kappa_score(ann_sorted[label].values, llm_sorted[label].values)
-            records.append(
-                {"annotator": ann_name, "vs": "gpt-4o", "label": label, "kappa": round(kappa, 4)}
-            )
+            records.append({"annotator": ann_name, "vs": "gpt-4o", "label": label, "kappa": round(kappa, 4)})
             logger.info(f"  κ({ann_name} vs gpt-4o) [{label}] = {kappa:.4f}")
 
     result = pd.DataFrame(records)

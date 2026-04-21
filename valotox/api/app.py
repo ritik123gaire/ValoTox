@@ -12,7 +12,6 @@ Endpoints:
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,8 +21,8 @@ from pydantic import BaseModel, Field
 from valotox.lexicon import LABELS
 from valotox.models.dataset import CLASSIFICATION_LABELS
 
-
 # ── Request / Response schemas ───────────────────────────────────────────────
+
 
 class ClassifyRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="Text to classify")
@@ -66,6 +65,7 @@ class HealthResponse(BaseModel):
 
 # ── App lifecycle ────────────────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Pre-load model on startup."""
@@ -102,6 +102,7 @@ app.add_middleware(
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health():

@@ -113,20 +113,17 @@ def fleiss_kappa(
             for i, v in enumerate(vals):
                 counts[i, v] += 1
 
-        # Fleiss' kappa computation
-        N = n_items
-        n = n_annotators
-        k = 2  # binary
+        # Fleiss' kappa (binary categories)
+        n_ann = n_annotators
+        p_j = counts.sum(axis=0) / (n_items * n_ann)
+        p_i_row = (np.sum(counts**2, axis=1) - n_ann) / (n_ann * (n_ann - 1))
+        p_bar = p_i_row.mean()
+        p_e = np.sum(p_j**2)
 
-        p_j = counts.sum(axis=0) / (N * n)  # proportion in each category
-        P_i = (np.sum(counts ** 2, axis=1) - n) / (n * (n - 1))  # per-item agreement
-        P_bar = P_i.mean()
-        P_e = np.sum(p_j ** 2)
-
-        if P_e == 1.0:
+        if p_e == 1.0:
             kappa = 1.0
         else:
-            kappa = (P_bar - P_e) / (1 - P_e)
+            kappa = (p_bar - p_e) / (1 - p_e)
 
         records.append({"label": label, "fleiss_kappa": round(kappa, 4)})
         logger.info(f"  Fleiss κ [{label}] = {kappa:.4f}")

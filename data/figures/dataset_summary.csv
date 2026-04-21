@@ -1,0 +1,2 @@
+total_samples,unique_texts,label_eda_source,subreddits,toxic_count,toxic_pct,harassment_count,harassment_pct,gender_attack_count,gender_attack_pct,slur_count,slur_pct,passive_toxic_count,passive_toxic_pct,not_toxic_count,not_toxic_pct,avg_word_count,median_word_count
+16079,16079,prediction_proxy,"{'ValorantCompetitive': 3679, 'VALORANT': 3608, 'AgentAcademy': 2297}",3377,21.0,224,1.39,9,0.06,163,1.01,1166,7.25,12702,79.0,37.7,9.0

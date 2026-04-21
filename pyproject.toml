@@ -38,8 +38,10 @@ dependencies = [
     "wordcloud>=1.9",
     # --- Agent / API ---
     "fastapi>=0.109",
+    "gradio>=4.44",
     "uvicorn[standard]>=0.25",
     "langchain>=0.1",
+    "langchain-openai>=0.1",
     "langgraph>=0.0.26",
     "langsmith>=0.0.80",
     "openai>=1.10",
@@ -48,6 +50,7 @@ dependencies = [
     "tqdm>=4.66",
     "loguru>=0.7",
     "pydantic>=2.5",
+    "pydantic-settings>=2.2",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +58,7 @@ dev = [
     "pytest>=7.4",
     "black>=23.12",
     "ruff>=0.1",
+    "vulture>=2.14",
     "ipykernel>=6.27",
     "notebook>=7.0",
 ]
@@ -63,12 +67,44 @@ dev = [
 include = ["valotox*"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]
 
 [tool.black]
-line-length = 100
+line-length = 120
 target-version = ["py310"]
+
+# Vulture: FastAPI/Pydantic/LangGraph register names dynamically; TypedDict keys are schema.
+[tool.vulture]
+paths = ["valotox"]
+min_confidence = 80
+exclude = ["**/test*.py", "**/tests/**"]
+ignore_names = [
+    "health",
+    "get_labels",
+    "classify",
+    "analyse",
+    "batch_classify",
+    "model_config",
+    "langchain_tracing_v2",
+    "langchain_api_key",
+    "langchain_project",
+    "best_model",
+    "input_text",
+    "toxicity_result",
+    "context_result",
+    "severity_result",
+    "final_decision",
+    "is_sarcastic",
+    "explanation",
+    "adjusted_labels",
+    "agent_response",
+    "status",
+    "version",
+    "compare_human_vs_llm",
+    "LABEL_CATEGORY_MAP",
+    "refresh",
+]

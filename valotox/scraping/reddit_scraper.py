@@ -24,8 +24,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from valotox.config import RAW_DIR, settings
+from valotox.lexicon import get_regex_pattern
 from valotox.scraping.proxy_pool import get_rotator, session_get
-from valotox.lexicon import ALL_TOXIC_KEYWORDS, get_regex_pattern
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 DEFAULT_SUBREDDITS: list[str] = [
@@ -34,8 +34,6 @@ DEFAULT_SUBREDDITS: list[str] = [
     "ValorantCompetitive",
     "AgentAcademy",
 ]
-
-SORT_MODES = ["hot", "top", "new", "controversial"]
 
 MIN_WORD_COUNT = 4  # filter very short / bot comments
 HEADERS = {
@@ -48,6 +46,7 @@ HEADERS = {
 
 
 # ── Helper ───────────────────────────────────────────────────────────────────
+
 
 def _get_reddit_client() -> praw.Reddit:
     """Create an authenticated Reddit client from env settings."""
@@ -236,10 +235,7 @@ def stream_pushshift_dumps(
                         if line_no % 1_000_000 == 0:
                             logger.info(f"Processed {line_no:,} lines in {file_path.name}")
 
-    logger.info(
-        f"Final rows: {written:,} "
-        f"(comments={by_kind['comment']:,}, submissions={by_kind['submission']:,})"
-    )
+    logger.info(f"Final rows: {written:,} (comments={by_kind['comment']:,}, submissions={by_kind['submission']:,})")
     return output_csv
 
 
@@ -353,8 +349,7 @@ def _scrape_reddit_sociavault(
                 "subreddit": sub_name,
                 "post_title": _safe_text(str(post.get("title", ""))),
                 "upvotes": int(post.get("score", 0) or 0),
-                "created_utc": str(post.get("created_utc", ""))
-                or datetime.now(tz=timezone.utc).isoformat(),
+                "created_utc": str(post.get("created_utc", "")) or datetime.now(tz=timezone.utc).isoformat(),
                 "source": "reddit",
             }
         )
@@ -396,9 +391,7 @@ def _scrape_reddit_sociavault(
             if not posts and last_exc is not None:
                 raise last_exc
         except Exception as exc:
-            logger.warning(
-                f"SociaVault subreddit request failed for r/{sub_name}: {exc}"
-            )
+            logger.warning(f"SociaVault subreddit request failed for r/{sub_name}: {exc}")
             continue
 
         for post in posts:
@@ -465,9 +458,7 @@ def _scrape_reddit_sociavault(
                     continue
 
                 upvotes = int(comment.get("score", 0) or 0)
-                created = str(comment.get("created_utc", "")) or datetime.now(
-                    tz=timezone.utc
-                ).isoformat()
+                created = str(comment.get("created_utc", "")) or datetime.now(tz=timezone.utc).isoformat()
 
                 rows.append(
                     {
@@ -510,9 +501,7 @@ def _scrape_reddit_html(
             try:
                 resp = session_get(session, rotator, url, params=params, timeout=20)
                 if resp.status_code in (429, 403):
-                    logger.warning(
-                        f"Blocked by Reddit HTML endpoint (status={resp.status_code}) for r/{sub_name}"
-                    )
+                    logger.warning(f"Blocked by Reddit HTML endpoint (status={resp.status_code}) for r/{sub_name}")
                     break
                 resp.raise_for_status()
             except Exception as exc:
@@ -573,6 +562,7 @@ def _scrape_reddit_html(
 
 # ── Main scraping function ───────────────────────────────────────────────────
 
+
 def scrape_subreddits(
     subreddits: list[str] | None = None,
     sort_modes: list[str] | None = None,
@@ -614,9 +604,7 @@ def scrape_subreddits(
     )
     if rows:
         df = pd.DataFrame(rows)
-        logger.info(
-            f"Scraped {len(df):,} comments via SociaVault across {len(subreddits)} subreddits"
-        )
+        logger.info(f"Scraped {len(df):,} comments via SociaVault across {len(subreddits)} subreddits")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, index=False)
         logger.info(f"Saved → {output_path}")
@@ -633,9 +621,7 @@ def scrape_subreddits(
     # Fall back to PRAW if HTML path returned nothing and credentials are set.
     if rows:
         df = pd.DataFrame(rows)
-        logger.info(
-            f"Scraped {len(df):,} comments via BeautifulSoup across {len(subreddits)} subreddits"
-        )
+        logger.info(f"Scraped {len(df):,} comments via BeautifulSoup across {len(subreddits)} subreddits")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, index=False)
         logger.info(f"Saved → {output_path}")
@@ -695,9 +681,7 @@ def scrape_subreddits(
                                 "subreddit": sub_name,
                                 "post_title": post.title,
                                 "upvotes": comment.score,
-                                "created_utc": datetime.fromtimestamp(
-                                    comment.created_utc, tz=timezone.utc
-                                ).isoformat(),
+                                "created_utc": datetime.fromtimestamp(comment.created_utc, tz=timezone.utc).isoformat(),
                                 "source": "reddit",
                             }
                         )
@@ -716,6 +700,7 @@ def scrape_subreddits(
 
 
 # ── Keyword-stratified sampling ──────────────────────────────────────────────
+
 
 def stratified_sample(
     df: pd.DataFrame,
@@ -748,18 +733,12 @@ def stratified_sample(
     toxic_pool = df[mask]
     clean_pool = df[~mask]
 
-    logger.info(
-        f"Keyword match: {len(toxic_pool):,} toxic, {len(clean_pool):,} clean"
-    )
+    logger.info(f"Keyword match: {len(toxic_pool):,} toxic, {len(clean_pool):,} clean")
 
     toxic_sample = toxic_pool.sample(n=min(toxic_n, len(toxic_pool)), random_state=seed)
     clean_sample = clean_pool.sample(n=min(clean_n, len(clean_pool)), random_state=seed)
 
-    final = (
-        pd.concat([toxic_sample, clean_sample])
-        .sample(frac=1, random_state=seed)
-        .reset_index(drop=True)
-    )
+    final = pd.concat([toxic_sample, clean_sample]).sample(frac=1, random_state=seed).reset_index(drop=True)
 
     final.to_csv(output_path, index=False)
     logger.info(f"Stratified sample: {len(final):,} rows → {output_path}")
@@ -822,9 +801,7 @@ if __name__ == "__main__":
         if args.stratify:
             streamed_df = pd.read_csv(out_csv)
             if streamed_df.empty or "text" not in streamed_df.columns:
-                logger.warning(
-                    "Stream output is empty or malformed; skipping stratified sample generation."
-                )
+                logger.warning("Stream output is empty or malformed; skipping stratified sample generation.")
             else:
                 stratified_sample(streamed_df, toxic_n=args.toxic_n, clean_n=args.clean_n)
     else:

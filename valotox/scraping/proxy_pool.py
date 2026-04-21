@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import itertools
 import threading
-from typing import Iterator
+from collections.abc import Iterator
 
 import requests
 from loguru import logger
