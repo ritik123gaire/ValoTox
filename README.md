@@ -86,15 +86,18 @@ python -m valotox.cli <command> [options]
 | `predict` | Run the classifier on a CSV column (`--input`, `--text-column`, `--threshold`) |
 | `interactive` | Terminal REPL, or one-shot `-t "text"` / `--threshold` |
 | `serve` | Start the FastAPI app with **uvicorn** (`--host`, `--port`, `--reload`) |
+| `train-report` | Print the latest training report table (`--model` optional) |
+| `ui` | Launch the local Gradio UI (`--host`, `--port`, `--share`) |
 
 Run `python -m valotox.cli` with no subcommand to print built-in help.
 
 ### Classification runtime
 
-1. **Call site** — `POST /classify`, `POST /batch`, LangGraph tools, or `python -m valotox.cli interactive` all go through `classify_toxicity()` in `valotox/agent/tools.py` (API preloads the classifier on startup).
-2. **Model handle** — `_get_classifier()` instantiates `ToxicityClassifier` from `valotox/models/transformer.py`. It prefers a checkpoint directory under `models/` (e.g. `models/roberta-valotox/best`). If none exists, it logs a warning and uses the same **lexicon-based** implementation.
-3. **Scores** — The bundled `ToxicityClassifier` produces multi-label confidences from Valorant-focused regex categories, passive-toxic phrases, and English slur word-boundary checks (`valotox/lexicon.py`). An optional `model_config.json` inside a checkpoint folder can adjust settings such as the default threshold.
-4. **Decision** — Toxic labels (`toxic`, `harassment`, `gender_attack`, `slur`, `passive_toxic`) above the threshold drive `is_toxic` and `active_labels`; `not_toxic` is only surfaced as active when no toxic label clears the bar. Severity is derived from the toxic labels, not from `not_toxic`.
+1. **Call site** — `POST /classify`, `POST /batch`, `python -m valotox.cli interactive`, and the Gradio UI all go through `classify_toxicity()` in `valotox/agent/tools.py`. `POST /analyse` runs the LangGraph agent instead (LLM + tools).
+2. **Model handle** — `_get_classifier()` selects the most recently updated `models/*/best` checkpoint and instantiates `ToxicityClassifier` from `valotox/models/transformer.py`. If no loadable checkpoint exists, it falls back to the built-in heuristic classifier.
+3. **Scores** — When a transformer checkpoint loads, its sigmoid scores are merged with heuristic scores (label-wise max). Heuristics use Valorant-specific regex categories, passive-toxic phrases, and English slur/profanity word-boundary checks (`valotox/lexicon.py`).
+4. **Thresholds** — If `model_config.json` defines per-label thresholds, they are used only when the caller keeps the default threshold of 0.5; otherwise the user-supplied threshold applies to all labels.
+5. **Decision** — Toxic labels (`toxic`, `harassment`, `gender_attack`, `slur`, `passive_toxic`) above the threshold drive `is_toxic` and `active_labels`. If none are active, `not_toxic` is included only when it also clears the threshold. Severity is computed from toxic labels only and can be `none`, `passive`, `moderate`, `severe`, or `slur`.
 
 So the repo runs **out of the box** for demos: no GPU weights are required for the CLI/API to return scores (they are heuristic until you plug in a trained checkpoint workflow).
 
@@ -104,6 +107,7 @@ So the repo runs **out of the box** for demos: no GPU weights are required for t
 python -m valotox.cli interactive
 python -m valotox.cli interactive -t "good luck everyone" --threshold 0.5
 python -m valotox.cli serve --reload --port 8000
+python -m valotox.cli ui --port 7860
 ```
 
 ---
